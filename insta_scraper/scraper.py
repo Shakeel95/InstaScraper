@@ -60,13 +60,14 @@ class insta_scraper:
             "post_3_content",
         ]
 
-    def start_driver(self, path_to_driver, headless=False):
+    def start_driver(self, path_to_driver, headless=False, incognito=False):
         """
         Starts webdriver and performs login.
         -----
         Args:
             - path_to_driver: e.g. from deom notebook use '../webdriver/win/chromedriver'
             - headless: bool, if True webdriver is headless
+            - incognito: bool, if True browser is run incognito
         """
 
         if not os.path.exists(path_to_driver):
@@ -74,7 +75,8 @@ class insta_scraper:
 
         options = webdriver.ChromeOptions()
         options.add_argument("--ignore-certificate-errors")
-        options.add_argument("--incognito")
+        if incognito:
+            options.add_argument("--incognito")
         if headless:
             options.add_argument("--headless")
 
@@ -99,8 +101,7 @@ class insta_scraper:
 
     def string2float(self, string):
         """
-        Jesus turned water into wine. This function turns trings into floats.
-        Your move Jesus.
+        Turns floats to strings as shown by instagram...
         -----
         Args:
             - string: a string
@@ -183,14 +184,15 @@ class insta_scraper:
 
         self.df = self.df = pd.DataFrame(columns=self.df_colnames)
 
-    def scrape_post_data(self, post_index, max_likes=300, scroll_pause=0.5):
+    def scrape_post_data(self, post_index, max_likes=300, scroll_pause=0.5, max_runs=7):
         """
-        What it does ....
+        Collect handles of of suers who have interacted with post.
         -----
         Args:
             - post_index: which post to scraper, if unsure check metadata
             - max_likes: to guarantee max set to float('inf')
             - scroll_pause: time to sleep between scrolling
+            - max_runs: maximum attempted scrolls with no change in users collected
         """
 
         if self.target_handle == None or self.target_url == None:
@@ -282,7 +284,7 @@ class insta_scraper:
                 runs += [1]
             else:
                 runs += [0]
-            if sum(runs[-4:]) > 3:
+            if sum(runs[-4:]) > max_runs:
                 break
 
             self.driver.execute_script(
@@ -295,17 +297,18 @@ class insta_scraper:
             i += 1
             time.sleep(scroll_pause)
 
-    def scrape_user_data(self,):
+    def scrape_user_data(self, frac_lambda=1):
         """
-        What it does...
+        Scrapes data from accounts accounts collected by last function.
         ---
         Args:
+            - frac_lambda: param in exponential distribution for waits; bigger = longer
         """
 
         for handle in tqdm(self.df.index.to_list()):
 
             self.driver.get(os.path.join(self.insta_url, handle))
-            time.sleep(np.random.exponential(1, 1))
+            time.sleep(np.random.exponential(frac_lambda))
 
             # followers, following, posts
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
@@ -353,7 +356,7 @@ class insta_scraper:
                         .text
                     )
                     i += 1
-                    time.sleep(np.random.exponential(1, 1))
+                    time.sleep(np.random.exponential(frac_lambda))
                 except:
                     i += 1
                     self.df.loc[handle, "post_{}_content".format(i)] = os.path.join(
