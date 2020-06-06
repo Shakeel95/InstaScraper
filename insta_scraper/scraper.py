@@ -8,6 +8,8 @@ from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.common.by import By
 
+import nltk
+
 from tqdm import tqdm
 
 import os
@@ -46,6 +48,8 @@ class insta_scraper:
         self.target_url = None
         self.target_follower_list = None
         self.posts_scraped = []
+
+        self.index_marker = 1
 
         self.df = None
         self.df_colnames = [
@@ -214,13 +218,14 @@ class insta_scraper:
         self.driver.get(os.path.join(self.insta_url, post.find(href=True)["href"][1:]))
         time.sleep(1)
 
-        # SET VIDEO CONDITION!
-
+        # mark post scraper
         self.posts_scraped += [post_index]
+        if "views" in soup.find("section", {"class": "EDfFK ygqzn"}).text:
+            return "post {} is a video, likes canot be scraper".format(post_index)
 
         # set up data collection
-        self.df["likes_post_{}".format(post_index)] = 0
-        self.df["comments_post_{}".format(post_index)] = 0
+        self.df["likes_post_{}".format(post_index)] = np.NaN
+        self.df["comments_post_{}".format(post_index)] = np.NaN
 
         # find users commenting
         soup = BeautifulSoup(self.driver.page_source, "html.parser")
@@ -230,14 +235,14 @@ class insta_scraper:
             handle = user.find(href=True)["href"].strip("/")
 
             if (self.df.index == handle).any():
-                self.df.loc[handle, "comments_post_{}".format(post_index)] = user.find(
-                    "div", {"class": "C4VMK"}
-                ).text.strip(handle)
+                self.df.loc[handle, "comments_post_{}".format(post_index)] = (
+                    user.find("div", {"class": "C4VMK"}).text.strip(handle).strip("#")
+                )
             else:
-                self.df.loc[handle] = 0
-                self.df.loc[handle, "comments_post_{}".format(post_index)] = user.find(
-                    "div", {"class": "C4VMK"}
-                ).text.strip(handle)
+                self.df.loc[handle] = np.NaN
+                self.df.loc[handle, "comments_post_{}".format(post_index)] = (
+                    user.find("div", {"class": "C4VMK"}).text.strip(handle).strip("#")
+                )
 
             if handle in self.target_follower_list:
                 self.df.loc[handle, "follows_target"] = 1
@@ -273,7 +278,7 @@ class insta_scraper:
                     self.df.loc[handle, "likes_post_{}".format(post_index)] = 1
 
                 else:
-                    self.df.loc[handle] = 0
+                    self.df.loc[handle] = np.NaN
                     self.df.loc[handle, "likes_post_{}".format(post_index)] = 1
                     if handle in self.target_follower_list:
                         self.df.loc[handle, "follows_target"] = 1
@@ -309,6 +314,7 @@ class insta_scraper:
 
             self.driver.get(os.path.join(self.insta_url, handle))
             time.sleep(np.random.exponential(frac_lambda))
+            self.index_marker += 1
 
             # followers, following, posts
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
@@ -327,7 +333,7 @@ class insta_scraper:
             try:
                 self.df.loc[handle, "bio"] = (
                     soup.find("div", {"class": "-vDIg"}).find("span").text
-                )
+                ).strip("#")
             except:
                 self.df.loc[handle, "bio"] = np.NaN
 
@@ -353,7 +359,7 @@ class insta_scraper:
                                 (By.XPATH, "//div[@class='C7I1f X7jCj']")
                             )
                         )
-                        .text
+                        .text.strip("#")
                     )
                     i += 1
                     time.sleep(np.random.exponential(frac_lambda))
@@ -364,23 +370,156 @@ class insta_scraper:
                     )
                     continue
 
-    def process_data_categorically(self,):
+        def pick_up_from_interuption(self,):
+            """
+            If you scrape too quickly insa throws you out!
+            Use this function to pick up from where you left off.
+            -----
+            """
+
+            for handle in tqdm(self.df.index[self.index_marker :]):
+
+                self.driver.get(os.path.join(self.insta_url, handle))
+                time.sleep(np.random.exponential(frac_lambda))
+                self.index_marker += 1
+
+                # followers, following, posts
+                soup = BeautifulSoup(self.driver.page_source, "html.parser")
+                banner = soup.find_all(class_="g47SY")
+                self.df.loc[handle, "n_followers"] = self.string2float(
+                    banner[1].text.replace(",", "")
+                )
+                self.df.loc[handle, "n_following"] = self.string2float(
+                    banner[2].text.replace(",", "")
+                )
+                self.df.loc[handle, "n_posts"] = self.string2float(
+                    banner[0].text.replace(",", "")
+                )
+
+                # bio
+                try:
+                    self.df.loc[handle, "bio"] = (
+                        soup.find("div", {"class": "-vDIg"}).find("span").text
+                    ).strip("#")
+                except:
+                    self.df.loc[handle, "bio"] = np.NaN
+
+                # posts over time
+                posts = soup.find_all("div", {"class": "KL4Bh"})
+                self.df.loc[handle, "posts_over_time"] = self.TagDateRatio(posts)
+
+                # post content
+                if soup.find("div", {"class": "Nnq7C weEfm"}) == None:
+                    continue
+                else:
+                    links = soup.find("div", {"class": "Nnq7C weEfm"}).find_all(
+                        href=True
+                    )
+
+                i = 1
+                for link in links[0:3]:
+                    try:
+                        url = link["href"]
+                        self.driver.get(os.path.join(self.insta_url, url[1:]))
+                        self.df.loc[handle, "post_{}_content".format(i)] = (
+                            WebDriverWait(self.driver, 5)
+                            .until(
+                                ec.presence_of_element_located(
+                                    (By.XPATH, "//div[@class='C7I1f X7jCj']")
+                                )
+                            )
+                            .text.strip("#")
+                        )
+                        i += 1
+                        time.sleep(np.random.exponential(frac_lambda))
+                    except:
+                        i += 1
+                        self.df.loc[handle, "post_{}_content".format(i)] = os.path.join(
+                            self.insta_url, url[1:]
+                        )
+                        continue
+
+    def word_occurence_analysis(self, path_to_data):
         """
-        What it does...
-        ---
+        Counts occurence of positive, and negative words in tokenized posts.
+        Counts occurence of Maslow pyramid of needs words.
+        -----
         Args:
+            - path_to_data: path to folder containing sentiment analysis and Maslow words (e.g. from demo notebook use '../data')
         """
 
-    def process_data_PCA(slef,):
-        """
-        What it does...
-        ---
-        Args:
-        """
+        # open Maslow words
+        with open(os.path.join(path_to_data, "self_actualisation.txt")) as f:
+            self_actualisation = f.readlines()[0].split(" ")
+        with open(os.path.join(path_to_data, "esteem.txt")) as f:
+            esteem = f.readlines()[0].split(" ")
+        with open(os.path.join(path_to_data, "love.txt")) as f:
+            love = f.readlines()[0].split(" ")
+        with open(os.path.join(path_to_data, "psychology.txt")) as f:
+            psychology = f.readlines()[0].split(" ")
+        with open(os.path.join(path_to_data, "safety.txt")) as f:
+            safety = f.readlines()[0].split(" ")
 
-    def visualise_data(self,):
-        """
-        What it does:
-        ---
-        Args:
-        """
+        # open sentiment analysis
+        sentiment_words = pd.read_csv(
+            os.path.join(path_to_data, "sentiment_words.csv"), encoding="ISO-8859-1"
+        )
+        positive_words = sentiment_words["POSITIVE"].to_list()
+        negative_words = sentiment_words["NEGATIVE"].to_list()
+
+        # make additional columns
+        self.df["self_actualisation"] = np.NaN
+        self.df["esteem"] = np.NaN
+        self.df["love"] = np.NaN
+        self.df["psychology"] = np.NaN
+        self.df["safety"] = np.NaN
+
+        self.df["positive_words"] = np.NaN
+        self.df["negative_words"] = np.NaN
+
+        for handle in tqdm(self.df.index.to_list()):
+
+            handle_str = "".join(str(s) for s in self.df.loc[handle].to_list())
+            tokens = nltk.word_tokenize(handle_str)
+
+            act_maker = 0
+            for token in tokens:
+                if token in self_actualisation:
+                    act_maker += 1
+            self.df.loc[handle, "self_actualisation"] = act_maker
+
+            esteem_marker = 0
+            for token in tokens:
+                if token in esteem:
+                    esteem_marker += 1
+            self.df.loc[handle, "esteem"] = esteem_marker
+
+            love_marker = 0
+            for token in tokens:
+                if token in esteem:
+                    love_marker += 1
+            self.df.loc[handle, "love"] = love_marker
+
+            psych_marker = 0
+            for token in tokens:
+                if token in psychology:
+                    psych_marker += 1
+            self.df.loc[handle, "psychology"] = psych_marker
+
+            safe_marker = 0
+            for token in tokens:
+                if token in safety:
+                    safe_marker += 1
+            self.df.loc[handle, "safety"] = safe_marker
+
+            pos_counter = 0
+            for token in tokens:
+                if token in positive_words:
+                    pos_counter += 1
+            self.df.loc[handle, "positive_words"] = pos_counter
+
+            neg_counter = 0
+            for token in tokens:
+                if token in negative_words:
+                    neg_counter += 1
+            self.df.loc[handle, "negative_words"] = neg_counter
