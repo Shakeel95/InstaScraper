@@ -220,6 +220,7 @@ class insta_scraper:
 
         # mark post scraper
         self.posts_scraped += [post_index]
+        soup = BeautifulSoup(self.driver.page_source, "html.parser")
         if "views" in soup.find("section", {"class": "EDfFK ygqzn"}).text:
             return "post {} is a video, likes canot be scraper".format(post_index)
 
