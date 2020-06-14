@@ -34,6 +34,8 @@ class insta_scraper:
         - set_follower_list: sets follower list for target account; list must be collected externally.
         - target_accout: collects target account meta-data
         - scrape_post_data: scrapes posts for target account
+        - pick_up_from_interuption: Use this function to pick up from where you left off if insta kicks you out mid scrape....
+        - word_occurence_analysis: for sentiment analysis etc
     """
 
     def __init__(self,):
