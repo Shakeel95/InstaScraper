@@ -371,11 +371,13 @@ class insta_scraper:
                     )
                     continue
 
-        def pick_up_from_interuption(self,):
+        def pick_up_from_interuption(self,frac_lambda=1):
             """
             If you scrape too quickly insa throws you out!
             Use this function to pick up from where you left off.
             -----
+            Args: 
+                - frac_lambda: param in exponential distribution for waits; bigger = longer
             """
 
             for handle in tqdm(self.df.index[self.index_marker :]):
