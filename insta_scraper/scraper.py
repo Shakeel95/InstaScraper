@@ -263,7 +263,9 @@ class insta_scraper:
         new_len = 0
         i = 0
 
-        while len(self.df) < min(max_likes, int(likes)):
+        n_df_rows = len(self.df)
+
+        while len(self.df) < (n_df_rows + min(max_likes, int(likes))):
 
             scroll_bar = WebDriverWait(self.driver, 5).until(
                 ec.presence_of_element_located(
