@@ -294,7 +294,7 @@ class insta_scraper:
                 runs += [1]
             else:
                 runs += [0]
-            if sum(runs[-4:]) > max_runs:
+            if sum(runs[-max_runs:]) == max_runs:
                 break
 
             self.driver.execute_script(
