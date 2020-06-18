@@ -264,6 +264,7 @@ class insta_scraper:
         i = 0
 
         n_df_rows = len(self.df)
+        print(len(self.df))
 
         while len(self.df) < (n_df_rows + min(max_likes, int(likes))):
 
@@ -375,76 +376,86 @@ class insta_scraper:
                     )
                     continue
 
-        def pick_up_from_interuption(self,frac_lambda=1):
-            """
-            If you scrape too quickly insa throws you out!
-            Use this function to pick up from where you left off.
-            -----
-            Args: 
-                - frac_lambda: param in exponential distribution for waits; bigger = longer
-            """
+    def pick_up_from_interuption(self, frac_lambda=1, new_index_marker=None):
+        """
+        If you scrape too quickly insa throws you out!
+        Use this function to pick up from where you left off.
+        -----
+        Args:
+            - frac_lambda: param in exponential distribution for waits; bigger = longer
+            - new_index_marker: manually set where to pick up scraping
+        """
 
-            for handle in tqdm(self.df.index[self.index_marker :]):
-
-                self.driver.get(os.path.join(self.insta_url, handle))
-                time.sleep(np.random.exponential(frac_lambda))
-                self.index_marker += 1
-
-                # followers, following, posts
-                soup = BeautifulSoup(self.driver.page_source, "html.parser")
-                banner = soup.find_all(class_="g47SY")
-                self.df.loc[handle, "n_followers"] = self.string2float(
-                    banner[1].text.replace(",", "")
-                )
-                self.df.loc[handle, "n_following"] = self.string2float(
-                    banner[2].text.replace(",", "")
-                )
-                self.df.loc[handle, "n_posts"] = self.string2float(
-                    banner[0].text.replace(",", "")
+        if new_index_marker:
+            if new_index_marker < self.index_marker:
+                return "Index marker valued will lead to duplication! You set new_index_marker={} but insta_scraper has already collected {} accounts".format(
+                    new_index_marker, self.index_marker
                 )
 
-                # bio
+            if new_index_marker > len(self.df):
+                raise Warning(
+                    "The value of new_index_marker cannot be greater than the number of profiles to scraper"
+                )
+
+        for handle in tqdm(self.df.index[self.index_marker :]):
+
+            self.driver.get(os.path.join(self.insta_url, handle))
+            time.sleep(np.random.exponential(frac_lambda))
+            self.index_marker += 1
+
+            # followers, following, posts
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            banner = soup.find_all(class_="g47SY")
+            self.df.loc[handle, "n_followers"] = self.string2float(
+                banner[1].text.replace(",", "")
+            )
+            self.df.loc[handle, "n_following"] = self.string2float(
+                banner[2].text.replace(",", "")
+            )
+            self.df.loc[handle, "n_posts"] = self.string2float(
+                banner[0].text.replace(",", "")
+            )
+
+            # bio
+            try:
+                self.df.loc[handle, "bio"] = (
+                    soup.find("div", {"class": "-vDIg"}).find("span").text
+                ).strip("#")
+            except:
+                self.df.loc[handle, "bio"] = np.NaN
+
+            # posts over time
+            posts = soup.find_all("div", {"class": "KL4Bh"})
+            self.df.loc[handle, "posts_over_time"] = self.TagDateRatio(posts)
+
+            # post content
+            if soup.find("div", {"class": "Nnq7C weEfm"}) == None:
+                continue
+            else:
+                links = soup.find("div", {"class": "Nnq7C weEfm"}).find_all(href=True)
+
+            i = 1
+            for link in links[0:3]:
                 try:
-                    self.df.loc[handle, "bio"] = (
-                        soup.find("div", {"class": "-vDIg"}).find("span").text
-                    ).strip("#")
-                except:
-                    self.df.loc[handle, "bio"] = np.NaN
-
-                # posts over time
-                posts = soup.find_all("div", {"class": "KL4Bh"})
-                self.df.loc[handle, "posts_over_time"] = self.TagDateRatio(posts)
-
-                # post content
-                if soup.find("div", {"class": "Nnq7C weEfm"}) == None:
-                    continue
-                else:
-                    links = soup.find("div", {"class": "Nnq7C weEfm"}).find_all(
-                        href=True
-                    )
-
-                i = 1
-                for link in links[0:3]:
-                    try:
-                        url = link["href"]
-                        self.driver.get(os.path.join(self.insta_url, url[1:]))
-                        self.df.loc[handle, "post_{}_content".format(i)] = (
-                            WebDriverWait(self.driver, 5)
-                            .until(
-                                ec.presence_of_element_located(
-                                    (By.XPATH, "//div[@class='C7I1f X7jCj']")
-                                )
+                    url = link["href"]
+                    self.driver.get(os.path.join(self.insta_url, url[1:]))
+                    self.df.loc[handle, "post_{}_content".format(i)] = (
+                        WebDriverWait(self.driver, 5)
+                        .until(
+                            ec.presence_of_element_located(
+                                (By.XPATH, "//div[@class='C7I1f X7jCj']")
                             )
-                            .text.strip("#")
                         )
-                        i += 1
-                        time.sleep(np.random.exponential(frac_lambda))
-                    except:
-                        i += 1
-                        self.df.loc[handle, "post_{}_content".format(i)] = os.path.join(
-                            self.insta_url, url[1:]
-                        )
-                        continue
+                        .text.strip("#")
+                    )
+                    i += 1
+                    time.sleep(np.random.exponential(frac_lambda))
+                except:
+                    i += 1
+                    self.df.loc[handle, "post_{}_content".format(i)] = os.path.join(
+                        self.insta_url, url[1:]
+                    )
+                    continue
 
     def word_occurence_analysis(self, path_to_data):
         """
